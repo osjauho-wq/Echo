@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Echo YouTube</title>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:#000;color:#fff;font:18px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;overflow:hidden}
+  #player{position:fixed;inset:0;width:100%;height:100%}
+  #inicio{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;text-align:center;padding:24px;background:#0f0f0f}
+  #inicio h1{margin:0;font-size:34px}
+  #inicio p{margin:0;color:#bbb;max-width:560px}
+  button{font:inherit;font-weight:700;font-size:22px;border:0;border-radius:40px;padding:18px 40px;background:#ff0033;color:#fff;cursor:pointer}
+  #estado{position:fixed;left:16px;bottom:14px;font-size:14px;color:#aaa;background:rgba(0,0,0,.6);padding:6px 12px;border-radius:20px;transition:opacity .6s}
+  #estado.oculto{opacity:0}
+  #barra{position:fixed;top:0;left:0;right:0;display:none;gap:10px;justify-content:center;padding:10px;background:linear-gradient(#000c,#0000);transition:opacity .6s}
+  #barra button{font-size:16px;padding:10px 18px;background:#ffffff22}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:#888;margin-right:6px;vertical-align:middle}
+  .on{background:#2ecc71}.off{background:#e74c3c}
+</style>
+</head>
+<body>
+<div id="player"></div>
+
+<div id="inicio">
+  <h1>📺 Echo YouTube</h1>
+  <p>Toca el botón una vez. Luego, desde tu iPhone, comparte un video de YouTube con el atajo <b>"Enviar a Echo"</b> y se reproducirá aquí.</p>
+  <button id="activar">Activar pantalla</button>
+</div>
+
+<div id="barra">
+  <button id="bPausa">⏯ Pausa / Play</button>
+  <button id="bFull">⛶ Pantalla completa</button>
+</div>
+
+<div id="estado"><span class="dot" id="dot"></span><span id="txt">Desconectado</span></div>
+
+<script>
+{
+  // Canal privado: debe ser EXACTAMENTE el mismo que usa el atajo del iPhone
+  const CANAL = 'echo-javi-u0o8xjks6kqn5tniga4uaa';
+  const SERVIDOR = 'https://ntfy.sh';
+
+  const $ = id => document.getElementById(id);
+  let player = null, listo = false, pendiente = null, ultimoId = null, timerEstado;
+
+  function estado(texto, ok){
+    $('txt').textContent = texto;
+    $('dot').className = 'dot ' + (ok ? 'on' : 'off');
+    $('estado').classList.remove('oculto');
+    clearTimeout(timerEstado);
+    if (ok) timerEstado = setTimeout(() => $('estado').classList.add('oculto'), 5000);
+  }
+
+  // Solo acepta links de YouTube; cualquier otra cosa se ignora
+  function sacarId(texto){
+    if (!texto) return null;
+    const m = String(texto).match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|live\/|embed\/)|youtu\.be\/|music\.youtube\.com\/watch\?(?:.*&)?v=)([A-Za-z0-9_-]{11})/);
+    return m ? m[1] : null;
+  }
+
+  function reproducir(id){
+    if (!id) return;
+    ultimoId = id;
+    if (!listo){ pendiente = id; return; }
+    player.loadVideoById(id);
+    estado('Reproduciendo video', true);
+  }
+
+  // Cargar la API oficial de YouTube
+  function cargarYouTube(){
+    const s = document.createElement('script');
+    s.src = 'https://www.youtube.com/iframe_api';
+    document.head.appendChild(s);
+  }
+  window.onYouTubeIframeAPIReady = function(){
+    player = new YT.Player('player', {
+      width: '100%', height: '100%',
+      playerVars: { autoplay: 1, playsinline: 1, rel: 0, modestbranding: 1 },
+      events: {
+        onReady: () => { listo = true; if (pendiente) { reproducir(pendiente); pendiente = null; } },
+        onError: e => estado('Este video no se puede ver fuera de YouTube (código ' + e.data + ')', false)
+      }
+    });
+  };
+
+  // Escuchar el canal (se reconecta solo si se corta)
+  function conectar(){
+    const es = new EventSource(SERVIDOR + '/' + CANAL + '/sse');
+    es.onopen = () => estado('Conectado · esperando videos', true);
+    es.onmessage = ev => {
+      try {
+        const d = JSON.parse(ev.data);
+        if (d.event !== 'message') return;
+        const id = sacarId(d.message) || sacarId(d.click) || sacarId(d.title);
+        if (id) reproducir(id);
+      } catch(_) {}
+    };
+    es.onerror = () => estado('Reconectando…', false);
+  }
+
+  $('activar').addEventListener('click', () => {
+    $('inicio').style.display = 'none';
+    $('barra').style.display = 'flex';
+    estado('Conectando…', false);
+    cargarYouTube();
+    conectar();
+    try { document.documentElement.requestFullscreen && document.documentElement.requestFullscreen(); } catch(_) {}
+    ocultarBarraLuego();
+  });
+
+  $('bPausa').addEventListener('click', () => {
+    if (!listo) return;
+    player.getPlayerState() === 1 ? player.pauseVideo() : player.playVideo();
+  });
+  $('bFull').addEventListener('click', () => {
+    try {
+      document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+    } catch(_) {}
+  });
+
+  // La barra superior se esconde sola; toca arriba para verla
+  let tBarra;
+  function ocultarBarraLuego(){
+    $('barra').style.opacity = 1;
+    clearTimeout(tBarra);
+    tBarra = setTimeout(() => $('barra').style.opacity = 0, 4000);
+  }
+  document.addEventListener('touchstart', ocultarBarraLuego, {passive:true});
+  document.addEventListener('mousemove', ocultarBarraLuego);
+}
+</script>
+</body>
+</html>
