@@ -24,7 +24,7 @@
 <div id="player"></div>
 
 <div id="inicio">
-  <h1>📺 Echo YouTube</h1>
+  <h1>📺 Echo YouTube <small style="font-size:14px;color:#888">v4</small></h1>
   <p>Toca el botón una vez. Luego, desde tu iPhone, comparte un video de YouTube con el atajo <b>"Enviar a Echo"</b> y se reproducirá aquí.</p>
   <button id="activar">Activar pantalla</button>
 </div>
@@ -136,7 +136,7 @@
   // Escuchar el canal (se reconecta solo si se corta)
   function conectar(){
     const es = new EventSource(SERVIDOR + '/' + CANAL + '/sse');
-    es.onopen = () => estado('Conectado · esperando videos', true);
+    es.onopen = () => estado('Conectado (v4) · esperando videos', true);
     es.onmessage = ev => {
       try {
         const d = JSON.parse(ev.data);
@@ -144,7 +144,7 @@
         const txt = d.message || d.title || (d.attachment && d.attachment.name) || '';
         const p = leerLink(d.message) || leerLink(d.click) || leerLink(d.title) || leerLink(d.attachment && d.attachment.name);
         if (p) reproducir(p);
-        else if (!comando(txt)) estado('Llegó algo que no es link de YouTube', false);
+        else if (!comando(txt)) estado(listo ? 'No entendí: "' + txt.slice(0,40) + '"' : 'Primero manda una canción', false);
       } catch(_) {}
     };
     es.onerror = () => estado('Reconectando…', false);
