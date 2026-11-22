@@ -24,7 +24,7 @@
 <div id="player"></div>
 
 <div id="inicio">
-  <h1>📺 Echo YouTube <small style="font-size:14px;color:#888">v4</small></h1>
+  <h1>📺 Echo YouTube <small style="font-size:14px;color:#888">v5</small></h1>
   <p>Toca el botón una vez. Luego, desde tu iPhone, comparte un video de YouTube con el atajo <b>"Enviar a Echo"</b> y se reproducirá aquí.</p>
   <button id="activar">Activar pantalla</button>
 </div>
@@ -67,12 +67,12 @@
   function comando(texto){
     const c = String(texto || '').trim().toLowerCase();
     if (!listo || !c) return false;
-    if (/^(siguiente|next|>)$/.test(c)) { player.getPlaylist() ? player.nextVideo() : player.seekTo(player.getDuration() - 1, true); estado('⏭ Siguiente', true); return true; }
-    if (/^(anterior|prev|<)$/.test(c)) { player.getPlaylist() ? player.previousVideo() : player.seekTo(0, true); estado('⏮ Anterior', true); return true; }
-    if (/^(pausa|pause)$/.test(c)) { player.pauseVideo(); estado('⏸ Pausa', true); return true; }
-    if (/^(play|seguir|continuar)$/.test(c)) { player.playVideo(); estado('▶ Play', true); return true; }
-    if (/^(subir|\+)$/.test(c)) { player.unMute(); player.setVolume(Math.min(100, player.getVolume() + 15)); estado('🔊 Volumen ' + player.getVolume(), true); return true; }
-    if (/^(bajar|-)$/.test(c)) { player.setVolume(Math.max(0, player.getVolume() - 15)); estado('🔉 Volumen ' + player.getVolume(), true); return true; }
+    if (/(siguiente|next)/.test(c)) { player.getPlaylist() ? player.nextVideo() : player.seekTo(player.getDuration() - 1, true); estado('⏭ Siguiente', true); return true; }
+    if (/(anterior|prev)/.test(c)) { player.getPlaylist() ? player.previousVideo() : player.seekTo(0, true); estado('⏮ Anterior', true); return true; }
+    if (/(pausa|pause)/.test(c)) { player.pauseVideo(); estado('⏸ Pausa', true); return true; }
+    if (/^(play|seguir|continuar)/.test(c)) { player.playVideo(); estado('▶ Play', true); return true; }
+    if (/(subir)/.test(c)) { player.unMute(); player.setVolume(Math.min(100, player.getVolume() + 15)); estado('🔊 Volumen ' + player.getVolume(), true); return true; }
+    if (/(bajar)/.test(c)) { player.setVolume(Math.max(0, player.getVolume() - 15)); estado('🔉 Volumen ' + player.getVolume(), true); return true; }
     return false;
   }
 
@@ -136,7 +136,7 @@
   // Escuchar el canal (se reconecta solo si se corta)
   function conectar(){
     const es = new EventSource(SERVIDOR + '/' + CANAL + '/sse');
-    es.onopen = () => estado('Conectado (v4) · esperando videos', true);
+    es.onopen = () => estado('Conectado (v5) · esperando videos', true);
     es.onmessage = ev => {
       try {
         const d = JSON.parse(ev.data);
