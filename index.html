@@ -53,19 +53,48 @@
     if (ok) timerEstado = setTimeout(() => $('estado').classList.add('oculto'), 5000);
   }
 
-  // Solo acepta links de YouTube; cualquier otra cosa se ignora
-  function sacarId(texto){
+  // Solo acepta links de YouTube (video y/o lista); cualquier otra cosa se ignora
+  function leerLink(texto){
     if (!texto) return null;
-    const m = String(texto).match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|live\/|embed\/)|youtu\.be\/|music\.youtube\.com\/watch\?(?:.*&)?v=)([A-Za-z0-9_-]{11})/);
-    return m ? m[1] : null;
+    const t = String(texto);
+    if (!/(youtube\.com|youtu\.be)/i.test(t)) return null;
+    const v = (t.match(/(?:[?&]v=|youtu\.be\/|shorts\/|live\/|embed\/)([A-Za-z0-9_-]{11})/) || [])[1] || null;
+    const list = (t.match(/[?&]list=([A-Za-z0-9_-]+)/) || [])[1] || null;
+    return (v || list) ? { v, list } : null;
   }
 
-  function reproducir(id){
-    if (!id) return;
-    ultimoId = id;
-    if (!listo){ pendiente = id; return; }
-    player.loadVideoById(id);
-    estado('Reproduciendo video', true);
+  // Comandos de texto: siguiente, anterior, pausa, play, subir, bajar
+  function comando(texto){
+    const c = String(texto || '').trim().toLowerCase();
+    if (!listo || !c) return false;
+    if (/^(siguiente|next|>)$/.test(c)) { player.getPlaylist() ? player.nextVideo() : player.seekTo(player.getDuration() - 1, true); estado('⏭ Siguiente', true); return true; }
+    if (/^(anterior|prev|<)$/.test(c)) { player.getPlaylist() ? player.previousVideo() : player.seekTo(0, true); estado('⏮ Anterior', true); return true; }
+    if (/^(pausa|pause)$/.test(c)) { player.pauseVideo(); estado('⏸ Pausa', true); return true; }
+    if (/^(play|seguir|continuar)$/.test(c)) { player.playVideo(); estado('▶ Play', true); return true; }
+    if (/^(subir|\+)$/.test(c)) { player.unMute(); player.setVolume(Math.min(100, player.getVolume() + 15)); estado('🔊 Volumen ' + player.getVolume(), true); return true; }
+    if (/^(bajar|-)$/.test(c)) { player.setVolume(Math.max(0, player.getVolume() - 15)); estado('🔉 Volumen ' + player.getVolume(), true); return true; }
+    return false;
+  }
+
+  function cargar(p){
+    if (p.list) {
+      const idx = 0;
+      player.loadPlaylist({ list: p.list, listType: 'playlist', index: idx });
+      // Si venía un video concreto dentro de la lista, se salta a él cuando cargue
+      if (p.v) setTimeout(() => { try { const l = player.getPlaylist() || []; const i = l.indexOf(p.v); if (i > 0) player.playVideoAt(i); } catch(_) {} }, 1500);
+    } else {
+      // Video suelto: se arma su Mix automático (como la reproducción automática de YouTube)
+      player.loadPlaylist({ list: 'RD' + p.v, listType: 'playlist', index: 0 });
+      setTimeout(() => { try { const l = player.getPlaylist(); if (!l || !l.length) player.loadVideoById(p.v); } catch(_) { player.loadVideoById(p.v); } }, 4000);
+    }
+  }
+
+  function reproducir(p){
+    ultimoId = p.v || p.list;
+    estado(p.list ? 'Lista recibida: sigue sola canción tras canción' : 'Video recibido · seguirá con su Mix', true);
+    if (!window.YT || !YT.Player) { pendiente = p; return; }
+    if (!player) { crearPlayer(p); return; }
+    if (listo) cargar(p); else pendiente = p;
   }
 
   // Cargar la API oficial de YouTube
@@ -74,15 +103,34 @@
     s.src = 'https://www.youtube.com/iframe_api';
     document.head.appendChild(s);
   }
-  window.onYouTubeIframeAPIReady = function(){
+  // El reproductor se crea recién cuando llega el primer pedido
+  function crearPlayer(p){
+    const vars = { autoplay: 1, playsinline: 1, rel: 0, modestbranding: 1, origin: location.origin };
+    vars.listType = 'playlist'; vars.list = p.list || ('RD' + p.v);
     player = new YT.Player('player', {
-      width: '100%', height: '100%',
-      playerVars: { autoplay: 1, playsinline: 1, rel: 0, modestbranding: 1 },
+      width: '100%', height: '100%', videoId: p.v || undefined, playerVars: vars,
       events: {
-        onReady: () => { listo = true; if (pendiente) { reproducir(pendiente); pendiente = null; } },
-        onError: e => estado('Este video no se puede ver fuera de YouTube (código ' + e.data + ')', false)
+        onReady: e => {
+          listo = true; e.target.playVideo();
+          // Si el Mix no cargó, al menos reproduce el video solo
+          setTimeout(() => { try { const l = player.getPlaylist(); if ((!l || !l.length) && p.v) player.loadVideoById(p.v); } catch(_) {} }, 4000);
+          if (pendiente) { const q = pendiente; pendiente = null; cargar(q); }
+        },
+        onError: e => {
+          if (!ultimoId) return;
+          const msg = (e.data == 101 || e.data == 150) ? 'El dueño no permite verlo fuera de YouTube'
+                    : e.data == 100 ? 'Video no encontrado o privado'
+                    : e.data == 2 ? 'Link no válido'
+                    : 'No se pudo reproducir';
+          estado(msg + ' (código ' + e.data + ')', false);
+          // En una lista, si una canción está bloqueada, salta a la siguiente
+          try { if (player.getPlaylist()) setTimeout(() => player.nextVideo(), 1500); } catch(_) {}
+        }
       }
     });
+  }
+  window.onYouTubeIframeAPIReady = function(){
+    if (pendiente) { const q = pendiente; pendiente = null; crearPlayer(q); }
   };
 
   // Escuchar el canal (se reconecta solo si se corta)
@@ -93,8 +141,10 @@
       try {
         const d = JSON.parse(ev.data);
         if (d.event !== 'message') return;
-        const id = sacarId(d.message) || sacarId(d.click) || sacarId(d.title);
-        if (id) reproducir(id);
+        const txt = d.message || d.title || (d.attachment && d.attachment.name) || '';
+        const p = leerLink(d.message) || leerLink(d.click) || leerLink(d.title) || leerLink(d.attachment && d.attachment.name);
+        if (p) reproducir(p);
+        else if (!comando(txt)) estado('Llegó algo que no es link de YouTube', false);
       } catch(_) {}
     };
     es.onerror = () => estado('Reconectando…', false);
